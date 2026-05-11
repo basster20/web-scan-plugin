@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bug Bounty Hunter</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🐞 Bug Bounty Hunter</h1>
+      <p class="subtitle">Security Scanner for Web Applications</p>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="page-scan">Page Scan</button>
+      <button class="tab-btn" data-tab="sinks">Sinks</button>
+      <button class="tab-btn" data-tab="js-scanner">JS Scanner</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+    </nav>
+
+    <!-- Page Scan Tab -->
+    <section id="page-scan" class="tab-content active">
+      <div class="scan-header">
+        <h2>Page Scan Results</h2>
+        <div class="scan-actions">
+          <button id="btn-rescan" class="btn btn-primary">🔄 Rescan</button>
+          <button id="btn-download" class="btn btn-secondary">💾 Download Report</button>
+        </div>
+      </div>
+
+      <div class="results-summary" id="page-summary">
+        <div class="summary-card">
+          <span class="summary-label">Keywords</span>
+          <span class="summary-value" id="count-keywords">0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Credentials</span>
+          <span class="summary-value" id="count-credentials">0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">URL Paths</span>
+          <span class="summary-value" id="count-paths">0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Cookies</span>
+          <span class="summary-value" id="count-cookies">0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Forms</span>
+          <span class="summary-value" id="count-forms">0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">JS Secrets</span>
+          <span class="summary-value" id="count-js-secrets">0</span>
+        </div>
+      </div>
+
+      <div class="results-container">
+        <!-- Sensitive Keywords -->
+        <div class="result-section">
+          <h3>🔍 Sensitive Keywords</h3>
+          <div id="keywords-results" class="result-list"></div>
+        </div>
+
+        <!-- Leaked Credentials -->
+        <div class="result-section">
+          <h3>⚠️ Leaked Credentials</h3>
+          <div id="credentials-results" class="result-list"></div>
+        </div>
+
+        <!-- URL Paths -->
+        <div class="result-section">
+          <h3>🔗 URL Paths</h3>
+          <div id="paths-results" class="result-list"></div>
+        </div>
+
+        <!-- Sensitive Cookies -->
+        <div class="result-section">
+          <h3>🍪 Sensitive Cookies</h3>
+          <div id="cookies-results" class="result-list"></div>
+        </div>
+
+        <!-- Form Endpoints -->
+        <div class="result-section">
+          <h3>📝 Form Endpoints</h3>
+          <div id="forms-results" class="result-list"></div>
+        </div>
+
+        <!-- JS Variables -->
+        <div class="result-section">
+          <h3>📜 Hardcoded JS Secrets</h3>
+          <div id="js-secrets-results" class="result-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sinks Tab -->
+    <section id="sinks" class="tab-content">
+      <div class="scan-header">
+        <h2>Dangerous Sinks</h2>
+        <span class="sink-count" id="sink-total-count">0 sinks found</span>
+      </div>
+
+      <div class="sink-filters">
+        <label>
+          <input type="checkbox" id="filter-high" checked> High Severity
+        </label>
+        <label>
+          <input type="checkbox" id="filter-medium" checked> Medium Severity
+        </label>
+        <label>
+          <input type="checkbox" id="filter-taint" checked> Show Taint Flow Only
+        </label>
+      </div>
+
+      <div id="sinks-results" class="result-list sinks-list"></div>
+    </section>
+
+    <!-- JS Scanner Tab -->
+    <section id="js-scanner" class="tab-content">
+      <h2>JavaScript Code Scanner</h2>
+      
+      <div class="js-scanner-input">
+        <div class="input-tabs">
+          <button class="input-tab active" data-input="snippet">Code Snippet</button>
+          <button class="input-tab" data-input="url">URL to .js File</button>
+        </div>
+
+        <textarea id="js-code-input" placeholder="Paste your JavaScript code here..."></textarea>
+        <input type="url" id="js-url-input" placeholder="https://example.com/script.js" style="display: none;">
+
+        <div class="custom-keywords-section">
+          <label for="custom-keywords">Custom Keywords (comma-separated):</label>
+          <input type="text" id="custom-keywords" placeholder="secret, api_key, password, token...">
+          <small>Default: secret, api_key, password, token, aws, private, admin, debug, internal, jwt, oauth, bearer, authorization, crypt, key, credential, passwd</small>
+        </div>
+
+        <button id="btn-scan-js" class="btn btn-primary btn-full">🔍 Scan JavaScript</button>
+      </div>
+
+      <div id="js-scan-results" class="js-results-container" style="display: none;">
+        <div class="js-results-header">
+          <h3>Scan Results</h3>
+          <div class="js-result-counts">
+            <span>Keyword Matches: <strong id="js-keyword-count">0</strong></span>
+            <span>Credentials: <strong id="js-credential-count">0</strong></span>
+            <span>Sinks: <strong id="js-sink-count">0</strong></span>
+          </div>
+        </div>
+
+        <div class="js-result-section">
+          <h4>Keyword Matches</h4>
+          <div id="js-keyword-results" class="js-result-list"></div>
+        </div>
+
+        <div class="js-result-section">
+          <h4>Credentials Found</h4>
+          <div id="js-credential-results" class="js-result-list"></div>
+        </div>
+
+        <div class="js-result-section">
+          <h4>Sinks Detected</h4>
+          <div id="js-sink-results" class="js-result-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings Tab -->
+    <section id="settings" class="tab-content">
+      <h2>Settings</h2>
+      
+      <div class="setting-group">
+        <h3>Custom Keywords</h3>
+        <p>Add or remove keywords to scan for in pages and JavaScript code.</p>
+        <textarea id="settings-keywords" rows="5" placeholder="Enter keywords, one per line"></textarea>
+        <button id="btn-save-keywords" class="btn btn-primary">💾 Save Keywords</button>
+        <button id="btn-reset-keywords" class="btn btn-secondary">🔄 Reset to Defaults</button>
+      </div>
+
+      <div class="setting-group">
+        <h3>About</h3>
+        <p><strong>Version:</strong> 1.0.0</p>
+        <p><strong>Description:</strong> Security scanning extension for bug bounty hunters</p>
+        <p>This extension scans webpages for sensitive data, leaked credentials, dangerous JavaScript sinks, and potential security vulnerabilities.</p>
+      </div>
+
+      <div class="setting-group">
+        <h3>Storage</h3>
+        <button id="btn-clear-storage" class="btn btn-danger">🗑️ Clear Stored Data</button>
+      </div>
+    </section>
+
+    <footer>
+      <p>Bug Bounty Hunter v1.0.0 | For security research purposes only</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
