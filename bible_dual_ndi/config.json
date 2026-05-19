@@ -1,0 +1,10 @@
+{
+    "ndi_source_name": "BibleDualDisplay",
+    "font_size": 40,
+    "hotkey": "f2",
+    "language": "en-US",
+    "ndi_enabled": true,
+    "microphone_device": "default",
+    "window_width": 1200,
+    "window_height": 800
+}
