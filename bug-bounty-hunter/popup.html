@@ -56,6 +56,10 @@
           <span class="summary-label">JS Secrets</span>
           <span class="summary-value" id="count-js-secrets">0</span>
         </div>
+        <div class="summary-card">
+          <span class="summary-label">CORS Issues</span>
+          <span class="summary-value" id="count-cors">0</span>
+        </div>
       </div>
 
       <div class="results-container">
@@ -93,6 +97,12 @@
         <div class="result-section">
           <h3>📜 Hardcoded JS Secrets</h3>
           <div id="js-secrets-results" class="result-list"></div>
+        </div>
+
+        <!-- CORS -->
+        <div class="result-section">
+          <h3>🌐 CORS / Cross-Origin</h3>
+          <div id="cors-results" class="result-list"></div>
         </div>
       </div>
     </section>
@@ -182,7 +192,7 @@
 
       <div class="setting-group">
         <h3>About</h3>
-        <p><strong>Version:</strong> 1.0.0</p>
+        <p><strong>Version:</strong> 1.1.0</p>
         <p><strong>Description:</strong> Security scanning extension for bug bounty hunters</p>
         <p>This extension scans webpages for sensitive data, leaked credentials, dangerous JavaScript sinks, and potential security vulnerabilities.</p>
       </div>
@@ -194,10 +204,11 @@
     </section>
 
     <footer>
-      <p>Bug Bounty Hunter v1.0.0 | For security research purposes only</p>
+      <p>Bug Bounty Hunter v1.1.0 | For security research purposes only</p>
     </footer>
   </div>
 
+  <script src="scan-engine.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

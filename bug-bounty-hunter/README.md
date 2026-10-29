@@ -1,137 +1,126 @@
-# Bug Bounty Hunter - Chrome Extension
+# Bug Bounty Hunter — Chrome Extension (v1.1.0)
 
-A production-ready web extension for bug bounty hunters that scans webpages for sensitive data, leaked credentials, dangerous JavaScript sinks, and potential security vulnerabilities.
+A Manifest V3 security-scanning extension for bug bounty hunters and web
+pentesters. It reads the page you are on — DOM, inline scripts, event
+handlers, network responses — and reports leaked secrets, dangerous JavaScript
+sinks, CORS misconfigurations and exposed endpoints, each with a severity.
 
-## Features
+Pure JavaScript, no build step, no CDN, no external dependencies.
 
-### Core Scanning Features
+## What changed in 1.1
 
-1. **Sensitive Keywords Detection**
-   - Detects keywords like: admin, password, secret, token, api_key, internal, debug, jwt, oauth, aws_secret, private key, passwd, etc.
+Everything is powered by one shared, tested module (`scan-engine.js`):
 
-2. **Leaked Credentials Detection**
-   - Email addresses
-   - API keys (generic 32-40 char, AWS, GitHub, Slack, Stripe, Google patterns)
-   - Tokens (Bearer, JWT, long hex strings)
-   - Passwords in plaintext
-   - Credit card numbers
-   - Private keys (RSA, SSH)
+- **Shared engine** — the same detection code runs in the content script, the
+  popup's JS scanner, and the Node test suite. No more logic that only exists
+  inside a message handler.
+- **Far more detectors** — see the table below; 18 provider-specific secret
+  types were added (OpenAI, Anthropic, Hugging Face, SendGrid, Twilio, npm,
+  PyPI, GitLab, Telegram, Slack webhooks, connection strings, URL basic-auth…).
+- **False positives cut** — Shannon-entropy gate on generic keys, Luhn check
+  on card numbers, placeholder/template rejection (`YOUR_API_KEY_HERE`,
+  `${SECRET}`, `password = "password"`), and bare hex strings only count when
+  a security label sits on the same line.
+- **Real taint analysis** — the old version asked "does this source exist
+  *anywhere* on the page?", which marked every sink tainted. Now a source only
+  taints a sink within 120 characters of it — and the analysis no longer
+  re-scans the whole document per sink (it was ~240 full text scans per page).
+- **Cross-source deduplication** — the same secret found in body text, HTML
+  source and a fetch response counts once, with hard caps so a chatty SPA
+  cannot grow results forever.
+- **Line numbers** on credentials, keywords and sinks.
+- **CORS checks** — wildcard/foreign `Access-Control-Allow-Origin` combined
+  with `Access-Control-Allow-Credentials` on intercepted fetch/XHR responses.
+- **Sensitive-path triage** — URL inventory is classified: `/.git`,
+  `/.env`, backups, `id_rsa`, source maps, wp-admin, debug endpoints…
+- **Fixed bugs** — reports recorded the popup's own URL instead of the scanned
+  page; MV3 service workers kill `setInterval`, so cleanup now runs on
+  `chrome.alarms`; `web_accessible_resources: ["*"]` (rejected by the Web
+  Store, useful to fingerprinters) removed; mutation scanning throttled
+  instead of running full regex passes on every DOM change.
+- **Nicer UX** — severity badges, toasts instead of blocking `alert()`,
+  occurrence counts, path highlighting.
 
-3. **URL Path Extraction**
-   - Extracts paths from `<a href>`, `action="/path"`, `data-url` attributes
-   - Includes current window.location paths
+## Detection coverage
 
-4. **Sensitive Cookies**
-   - Lists cookies containing "session", "token", "auth", "jwt"
+| Category | Examples | Severity |
+| --- | --- | --- |
+| Critical | Private keys, AWS access/secret keys, OpenAI/Anthropic keys, live Stripe keys, SendGrid keys, `.env`/`.git` exposure | critical |
+| High | GitHub/GitLab/npm/PyPI/Hugging Face/Slack/Telegram/Twilio tokens, connection-string and URL basic-auth credentials, plaintext passwords, backup files | high |
+| Medium | JWTs, bearer tokens, test-mode Stripe keys, Sentry DSNs, labelled API keys, admin/debug endpoints, credentialed CORS wildcard | medium |
+| Low / Info | Firebase URLs, source maps, emails, long hex strings with a security label | low/info |
+| Sinks | `eval`, string `setTimeout`, `Function`, `innerHTML`/`outerHTML`/`insertAdjacentHTML`, `document.write`, jQuery HTML methods, navigation sinks — each with **proximity taint flow** | High/Medium |
 
-5. **Form Endpoint Analysis**
-   - Reports method, action URL, and input names for all forms
+Validation rules that keep the noise down:
 
-6. **Hardcoded JS Variables**
-   - Detects variables like `var apiKey = "..."`, `const secret = "..."`
-
-7. **Dangerous Sinks Detection**
-   - Code execution: `eval()`, `setTimeout/setInterval` with strings, `Function()`, `execScript`
-   - DOM manipulation: `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`
-   - jQuery sinks: `.html()`, `.append()`, `.after()`, `.before()`
-   - Navigation: `location.href`, `location.assign`, `location.replace`
-   - Messaging: `postMessage()`, `chrome.runtime.sendMessage`
-   - Taint flow analysis to identify potential XSS vectors
-
-### JS File Scanner
-
-- Paste raw JavaScript code OR provide a URL to a .js file
-- Custom editable keywords (stored in chrome.storage.local)
-- Line-by-line keyword matching with context
-- Automatic credential regex scanning
-- Scrollable results with copy buttons
+- **Entropy gate** — generic 32-char keys must have ≥ 3.2 bits/char and mix
+  character classes; all-lowercase runs are dropped.
+- **Luhn** — credit-card-shaped numbers must pass the checksum.
+- **Placeholders** — `YOUR_API_KEY_HERE`, `<token>`, `${VAR}`, `changeme`,
+  `password = "password"` and friends are never reported.
+- **Hash awareness** — `sha256`/`checksum`/`integrity` context suppresses hex
+  findings.
 
 ## Installation
 
-1. Open Chrome/Edge and navigate to `chrome://extensions/`
-2. Enable "Developer mode" (toggle in top right)
-3. Click "Load unpacked"
-4. Select the `bug-bounty-hunter` folder
-5. The extension icon will appear in your toolbar
+1. Open `chrome://extensions/` (Edge: `edge://extensions/`)
+2. Enable **Developer mode** (top right)
+3. **Load unpacked** → select this `bug-bounty-hunter/` folder
 
 ## Usage
 
-### Page Scan Tab
-- Automatically scans the current page when you open the popup
-- Click "Rescan" to refresh results
-- View findings organized by category
-- Click "Download Report" to export results as JSON
+- **Page Scan** — auto-scans when the popup opens; *Rescan* refreshes.
+  Findings are grouped by category with severity badges, masking, line
+  numbers and per-finding copy. *Download Report* exports JSON for the page
+  you actually scanned.
+- **Sinks** — filter by severity or by taint flow; each sink shows its code
+  snippet, line, repeat count and the nearby sources.
+- **JS Scanner** — paste a snippet or give a `.js` URL. Runs locally in the
+  popup via the shared engine, so it works even on pages where content
+  scripts cannot run (`chrome://`, Web Store). Custom keywords are
+  comma-separated.
+- **Settings** — manage keywords (one per line), clear stored data.
 
-### Sinks Tab
-- View all detected dangerous JavaScript sinks
-- Filter by severity (High/Medium)
-- Toggle "Show Taint Flow Only" to see sinks with potential user input sources
-- Each sink shows code snippet, context, and potential data sources
+## Testing
 
-### JS Scanner Tab
-- Choose between "Code Snippet" or "URL to .js File"
-- Paste JavaScript code or enter a URL (CORS permitting)
-- Customize keywords (comma-separated)
-- Click "Scan JavaScript" to analyze
-- Results show line numbers, matched keywords, credentials, and sinks
+```bash
+node tests/engine.test.js
+```
 
-### Settings Tab
-- Manage custom keywords (one per line)
-- Save or reset keywords to defaults
-- Clear stored scan data
-- Extension information
+43 assertions covering detection, rejection of noise, dedup caps, taint
+proximity, line numbers and path triage. Runs in plain Node, no install.
 
-## Files Structure
+## Files
 
 ```
 bug-bounty-hunter/
-├── manifest.json      # Extension manifest (MV3)
-├── background.js      # Service worker for message handling
-├── content.js         # Content script for page scanning
-├── popup.html         # Popup UI structure
-├── popup.js           # Popup logic and UI handling
-├── styles.css         # Popup styling
-├── icons/
-│   ├── icon16.png
-│   ├── icon48.png
-│   └── icon128.png
-└── README.md          # This file
+├── manifest.json      # MV3 manifest
+├── scan-engine.js     # shared detection engine (pure, tested)
+├── content.js         # DOM/network plumbing, uses the engine
+├── background.js      # service worker: aggregation + alarms cleanup
+├── popup.html/js      # UI
+├── styles.css
+├── tests/engine.test.js
+└── icons/
 ```
 
-## Technical Details
+## Security considerations
 
-- **Manifest Version**: 3
-- **Permissions**: activeTab, storage, scripting
-- **No external dependencies**: Pure JavaScript, no CDNs
-- **Efficient regex patterns**: Designed to avoid catastrophic backtracking
-- **MutationObserver**: Scans dynamically added content
-- **Fetch/XHR patching**: Captures and scans network response bodies
-- **Storage**: Results cached in chrome.storage.local
-
-## Regex Patterns
-
-All patterns are optimized for efficiency:
-
-- **Email**: RFC 5322 simplified
-- **AWS Keys**: AKIA prefix pattern
-- **GitHub Tokens**: ghp_, gho_, ghu_, ghs_, ghr_ prefixes
-- **Slack Tokens**: xoxb-, xoxp-, xoxa- prefixes
-- **Stripe Keys**: sk_live_, pk_live_, sk_test_, pk_test_ prefixes
-- **Google API Keys**: AIza prefix
-- **JWT**: eyJ base64url encoded format
-- **Private Keys**: BEGIN/END PRIVATE KEY blocks
-
-## Security Considerations
-
-- This extension is for **security research and bug bounty hunting only**
-- Do not use on systems you don't have permission to test
-- Credentials are masked in the UI but can be copied for verification
-- Downloaded reports contain unmasked sensitive data - handle securely
+- For **security research and authorized testing only**. Do not use on
+  systems you do not have permission to test.
+- Credential values are masked in the UI; copy buttons expose the full value
+  deliberately. Downloaded reports contain unmasked values — handle them
+  accordingly.
+- The extension needs `activeTab`, `storage`, `scripting` and `alarms`.
+  Network interception happens in pages you visit, locally; nothing is sent
+  anywhere.
 
 ## License
 
-MIT License - Free for security research and educational purposes.
+MIT — free for security research and educational use.
 
 ## Disclaimer
 
-This tool is provided "as is" for legitimate security research purposes only. The authors are not responsible for any misuse or damages caused by this software. Always obtain proper authorization before testing any system.
+Provided "as is" for legitimate security research. The authors are not
+responsible for misuse. Always obtain proper authorization before testing
+any system.

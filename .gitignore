@@ -1,4 +1,3 @@
-```
 # Database files
 *.db
 
@@ -42,4 +41,3 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-```

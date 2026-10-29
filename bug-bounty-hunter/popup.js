@@ -13,6 +13,7 @@ const DEFAULT_KEYWORDS = [
 // Current scan results
 let currentResults = null;
 let currentSinks = [];
+let scannedTabUrl = null;
 
 // =============================================================================
 // INITIALIZATION
@@ -130,6 +131,8 @@ async function performPageScan() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
+    scannedTabUrl = tab.url || null;
+
     // Send message to content script to perform scan
     const response = await chrome.tabs.sendMessage(tab.id, { type: 'PERFORM_SCAN' });
     
@@ -155,14 +158,16 @@ function displayPageScanResults(results) {
   document.getElementById('count-cookies').textContent = results.sensitiveCookies?.length || 0;
   document.getElementById('count-forms').textContent = results.formEndpoints?.length || 0;
   document.getElementById('count-js-secrets').textContent = results.jsVariables?.length || 0;
+  document.getElementById('count-cors').textContent = results.corsIssues?.length || 0;
   
   // Render each section
   renderKeywords(results.sensitiveKeywords || []);
   renderCredentials(results.leakedCredentials || []);
-  renderPaths(results.urlPaths || []);
+  renderPaths(results.urlPaths || [], results.sensitivePaths || []);
   renderCookies(results.sensitiveCookies || []);
   renderForms(results.formEndpoints || []);
   renderJSSecrets(results.jsVariables || []);
+  renderCors(results.corsIssues || []);
 }
 
 // =============================================================================
@@ -230,7 +235,9 @@ function renderCredentials(credentials) {
       <div class="result-details">
         ${items.map(item => `
           <div class="result-snippet">
+            <span class="badge ${badgeClass(item.severity)}">${escapeHtml(item.severity || 'medium')}</span>
             <code class="credential-value">${maskCredential(item.value)}</code>
+            ${item.line ? `<span class="line-no">L${item.line}</span>` : ''}
             <button class="btn-copy" data-text="${escapeHtml(item.value)}">📋 Copy</button>
             <span class="context">${escapeHtml(item.context)}</span>
           </div>
@@ -242,7 +249,7 @@ function renderCredentials(credentials) {
   attachCopyButtons(container);
 }
 
-function renderPaths(paths) {
+function renderPaths(paths, sensitivePaths) {
   const container = document.getElementById('paths-results');
   
   if (paths.length === 0) {
@@ -253,12 +260,15 @@ function renderPaths(paths) {
   container.innerHTML = `
     <div class="result-item">
       <div class="path-list">
-        ${paths.map(path => `
-          <div class="path-item">
+        ${paths.map(path => {
+          const hit = (sensitivePaths || []).find(s => s.path === path);
+          return `
+          <div class="path-item${hit ? ' path-sensitive' : ''}">
             <span>${escapeHtml(path)}</span>
+            ${hit ? `<span class="badge badge-danger" title="${escapeHtml(hit.reason)}">${escapeHtml(hit.reason)}</span>` : ''}
             <button class="btn-copy" data-text="${escapeHtml(path)}">📋 Copy</button>
-          </div>
-        `).join('')}
+          </div>`;
+        }).join('')}
       </div>
     </div>
   `;
@@ -344,6 +354,34 @@ function renderJSSecrets(secrets) {
   attachCopyButtons(container);
 }
 
+function renderCors(issues) {
+  const container = document.getElementById('cors-results');
+  if (!container) return;
+
+  if (!issues || issues.length === 0) {
+    container.innerHTML = '<p class="no-results">No CORS issues detected</p>';
+    return;
+  }
+
+  container.innerHTML = issues.map(issue => `
+    <div class="result-item">
+      <div class="result-header">
+        <span class="${badgeClass(issue.severity)}">${escapeHtml(issue.severity)}</span>
+        <span class="form-action">${escapeHtml(truncate(issue.url, 60))}</span>
+      </div>
+      <div class="result-details">
+        <div class="result-snippet">
+          <span class="context">${escapeHtml(issue.reason)}</span>
+          ${issue.acac === 'true' ? '<span class="badge badge-warning">allow-credentials</span>' : ''}
+          <button class="btn-copy" data-text="${escapeHtml(issue.reason)}">📋 Copy</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  attachCopyButtons(container);
+}
+
 function renderSinks(sinks) {
   const container = document.getElementById('sinks-results');
   const totalCount = document.getElementById('sink-total-count');
@@ -384,6 +422,8 @@ function renderSinks(sinks) {
       <div class="result-details">
         <pre class="sink-snippet"><code>${escapeHtml(sink.snippet)}</code></pre>
         <div class="sink-meta">
+          ${sink.line ? `<span class="line-no">L${sink.line}</span>` : ''}
+          ${(sink.count || 1) > 1 ? `<span class="count-badge">×${sink.count}</span>` : ''}
           <span class="context">${escapeHtml(sink.context)}</span>
           ${sink.potentialSources?.length > 0 ? `
             <span class="sources">Sources: ${sink.potentialSources.join(', ')}</span>
@@ -433,14 +473,19 @@ async function scanJavaScript() {
       code = await response.text();
     }
     
-    // Send to content script for scanning
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const results = await chrome.tabs.sendMessage(tab.id, {
-      type: 'SCAN_JS_CODE',
-      code: code,
-      keywords: keywords
-    });
-    
+    // Scan locally with the shared engine — same rules as the content
+    // script, but it also works on pages that have no content script.
+    const codeLines = code.split('\n');
+    const results = {
+      keywordMatches: ScanEngine.scanKeywords(code, keywords).map(m => ({
+        line: m.line,
+        content: codeLines[m.line - 1] || '',
+        keyword: m.keyword,
+      })),
+      credentialMatches: ScanEngine.scanCredentials(code, 'JS Scanner'),
+      sinkMatches: ScanEngine.scanSinks(code, 'JS Scanner'),
+    };
+
     // Display results
     displayJSScanResults(results);
     
@@ -586,8 +631,8 @@ function downloadReport() {
   
   const report = {
     extension: 'Bug Bounty Hunter',
-    version: '1.0.0',
-    scannedUrl: window.location.href,
+    version: '1.1.0',
+    scannedUrl: scannedTabUrl || 'unknown',
     scanTime: currentResults.timestamp,
     summary: {
       sensitiveKeywords: currentResults.sensitiveKeywords?.length || 0,
@@ -625,6 +670,22 @@ function downloadReport() {
 // UTILITY FUNCTIONS
 // =============================================================================
 
+function badgeClass(severity) {
+  switch (severity) {
+    case 'critical':
+    case 'high':
+    case 'High':
+      return 'badge badge-danger';
+    case 'medium':
+    case 'Medium':
+      return 'badge badge-warning';
+    case 'low':
+      return 'badge badge-info';
+    default:
+      return 'badge badge-secondary';
+  }
+}
+
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
@@ -661,10 +722,23 @@ function attachCopyButtons(container) {
 }
 
 function showError(message) {
-  // Simple error display - could be enhanced with a toast/notification system
-  alert(`⚠️ ${message}`);
+  toast(message, 'error');
 }
 
 function showSuccess(message) {
-  alert(`✅ ${message}`);
+  toast(message, 'success');
+}
+
+// Lightweight toast — alert() blocked the popup and felt broken.
+function toast(message, kind) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = (kind === 'error' ? '⚠️ ' : '✅ ') + message;
+  el.className = 'toast show' + (kind === 'error' ? ' toast-error' : ' toast-ok');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => { el.className = 'toast'; }, 2600);
 }

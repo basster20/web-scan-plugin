@@ -1,77 +1,81 @@
 /* =============================================================================
-   BUG BOUNTY HUNTER - Background Service Worker
-   Handles messages from content scripts and popup
+   Bug Bounty Hunter — background service worker (MV3)
+   Aggregates per-tab findings pushed by content scripts and expires them.
+
+   v1.1: cleanup runs on chrome.alarms — a plain setInterval dies with the
+   service worker after ~30s idle, so old results used to linger forever.
    ============================================================================= */
 
-// Store aggregated results
 let aggregatedResults = {
   scans: [],
-  lastUpdated: null
+  lastUpdated: null,
 };
 
-// Listen for messages from content scripts
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.type === 'SCAN_RESULTS') {
-    // Content script found something in network responses
-    const tabId = sender.tab?.id;
-    
-    if (tabId) {
-      // Get existing results for this tab or create new
-      const existingScan = aggregatedResults.scans.find(s => s.tabId === tabId);
-      
-      if (existingScan) {
-        if (request.data.credentials) {
-          existingScan.credentials.push(...request.data.credentials);
-        }
-        if (request.data.sinks) {
-          existingScan.sinks.push(...request.data.sinks);
-        }
-      } else {
-        aggregatedResults.scans.push({
-          tabId: tabId,
-          url: request.data.url || sender.tab?.url,
-          credentials: request.data.credentials || [],
-          sinks: request.data.sinks || [],
-          timestamp: Date.now()
-        });
-      }
-      
-      aggregatedResults.lastUpdated = Date.now();
-      
-      // Update storage
-      chrome.storage.local.set({ 
-        aggregatedResults,
-        lastUpdated: aggregatedResults.lastUpdated 
-      });
-    }
-    
-    sendResponse({ success: true });
+const RETENTION_MS = 30 * 60 * 1000; // keep per-tab findings for 30 minutes
+const MAX_SCANS = 50;
+
+function pruneAndStore() {
+  const cutoff = Date.now() - RETENTION_MS;
+  aggregatedResults.scans = aggregatedResults.scans.filter(s => s.timestamp > cutoff);
+  aggregatedResults.lastUpdated = Date.now();
+  try {
+    chrome.storage.local.set({ aggregatedResults, lastUpdated: aggregatedResults.lastUpdated });
+  } catch (e) { /* storage unavailable */ }
+}
+
+function mergeInto(list, additions, keyFn) {
+  const seen = new Set(list.map(keyFn));
+  for (const item of additions || []) {
+    const key = keyFn(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    list.push(item);
   }
-  
-  return true;
+}
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type !== 'SCAN_RESULTS') return;
+
+  const tabId = sender.tab && sender.tab.id;
+  if (!tabId) return;
+
+  let scan = aggregatedResults.scans.find(s => s.tabId === tabId);
+  if (!scan) {
+    scan = {
+      tabId,
+      url: (sender.tab && sender.tab.url) || (request.data && request.data.url) || '',
+      credentials: [],
+      sinks: [],
+      corsIssues: [],
+      timestamp: Date.now(),
+    };
+    aggregatedResults.scans.push(scan);
+    if (aggregatedResults.scans.length > MAX_SCANS) aggregatedResults.scans.shift();
+  }
+
+  const data = request.data || {};
+  mergeInto(scan.credentials, data.credentials, c => c.type + '\u0000' + c.value);
+  mergeInto(scan.sinks, data.sinks, s => s.name + '\u0000' + s.context);
+  mergeInto(scan.corsIssues, data.corsIssues, c => c.url + '\u0000' + c.reason);
+  scan.timestamp = Date.now();
+
+  pruneAndStore();
+  sendResponse({ success: true });
 });
 
-// Clean up old results periodically (every 5 minutes)
-setInterval(() => {
-  const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
-  aggregatedResults.scans = aggregatedResults.scans.filter(s => s.timestamp > fiveMinutesAgo);
-  aggregatedResults.lastUpdated = Date.now();
-  
-  chrome.storage.local.set({ 
-    aggregatedResults,
-    lastUpdated: aggregatedResults.lastUpdated 
-  });
-}, 5 * 60 * 1000);
-
-// Initialize storage on install
 chrome.runtime.onInstalled.addListener(() => {
+  chrome.alarms.create('bbh-cleanup', { periodInMinutes: 5 });
   chrome.storage.local.set({
     aggregatedResults: { scans: [], lastUpdated: Date.now() },
     customKeywords: [
-      'secret', 'api_key', 'password', 'token', 'aws', 'private', 
-      'admin', 'debug', 'internal', 'jwt', 'oauth', 'bearer', 
-      'authorization', 'crypt', 'key', 'credential', 'passwd'
+      'secret', 'api_key', 'password', 'token', 'aws', 'private',
+      'admin', 'debug', 'internal', 'jwt', 'oauth', 'bearer',
+      'authorization', 'crypt', 'key', 'credential', 'passwd',
     ],
-    extensionVersion: '1.0.0'
+    extensionVersion: '1.1.0',
   });
+});
+
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === 'bbh-cleanup') pruneAndStore();
 });
