@@ -1,4 +1,4 @@
-# Bug Bounty Hunter — Chrome Extension (v1.1.0)
+# Bug Bounty Hunter — Chrome Extension (v1.2.0)
 
 A Manifest V3 security-scanning extension for bug bounty hunters and web
 pentesters. It reads the page you are on — DOM, inline scripts, event
@@ -6,6 +6,35 @@ handlers, network responses — and reports leaked secrets, dangerous JavaScript
 sinks, CORS misconfigurations and exposed endpoints, each with a severity.
 
 Pure JavaScript, no build step, no CDN, no external dependencies.
+
+## What's new in 1.2 — real DOM XSS tracing
+
+The extension now follows tainted data instead of guessing from proximity:
+
+- **Source → variable → sink chains.** `location.hash` assigned to `h`, `h`
+  passed to `render()`, `render()` writing `innerHTML` — the popup shows the
+  whole path with line numbers, hops and a confidence score, so every finding
+  is verifiable by reading the chain.
+- **Function parameters are tracked one level deep.** A call site that passes a
+  tainted value marks the matching parameter inside the callee.
+- **Sources** include `location.*`, `document.URL/referrer/cookie`,
+  `localStorage`/`sessionStorage`, `window.name`, `history.state`,
+  `URLSearchParams`, `event.data`, `dataTransfer`, jQuery `.val()` and form
+  values.
+- **Sinks** cover HTML assignment, `insertAdjacentHTML`, `document.write`,
+  `eval`/`Function`, string `setTimeout`, jQuery HTML methods, navigation,
+  `setAttribute('on*')`, `srcdoc`, `createContextualFragment`, `globalEval`.
+- **Weakness checks** — message listeners that never validate `event.origin`
+  are flagged, with a note explaining the fix.
+- **Markup-level vectors** — `javascript:` URLs and `iframe srcdoc` found in the
+  live DOM are reported as sinks.
+- **Extra sink patterns** in the regex scanner: postMessage with wildcard
+  target origin, `document.domain` assignment, `setAttribute` event handlers.
+
+Limits, stated plainly: the analyzer is flow-insensitive (ignores branches and
+loops), handles one level of function parameters, and works on readable code —
+minified bundles will produce little. Every flow names its lines so you can
+judge it yourself.
 
 ## What changed in 1.1
 
@@ -49,7 +78,9 @@ Everything is powered by one shared, tested module (`scan-engine.js`):
 | High | GitHub/GitLab/npm/PyPI/Hugging Face/Slack/Telegram/Twilio tokens, connection-string and URL basic-auth credentials, plaintext passwords, backup files | high |
 | Medium | JWTs, bearer tokens, test-mode Stripe keys, Sentry DSNs, labelled API keys, admin/debug endpoints, credentialed CORS wildcard | medium |
 | Low / Info | Firebase URLs, source maps, emails, long hex strings with a security label | low/info |
-| Sinks | `eval`, string `setTimeout`, `Function`, `innerHTML`/`outerHTML`/`insertAdjacentHTML`, `document.write`, jQuery HTML methods, navigation sinks — each with **proximity taint flow** | High/Medium |
+| Sinks | `eval`, string `setTimeout`, `Function`, `innerHTML`/`outerHTML`/`insertAdjacentHTML`, `document.write`, jQuery HTML methods, navigation, `srcdoc`, `setAttribute('on*')`, wildcard `postMessage` — each with **proximity taint flow** | High/Medium |
+| DOM XSS flows | Full source → propagation → sink chains with line numbers, hop count and confidence (new in 1.2) | High/Medium/Low |
+| Weaknesses | `postMessage` listeners that never check `event.origin` | Medium |
 
 Validation rules that keep the noise down:
 
@@ -85,10 +116,13 @@ Validation rules that keep the noise down:
 
 ```bash
 node tests/engine.test.js
+node tests/taint.test.js
 ```
 
-43 assertions covering detection, rejection of noise, dedup caps, taint
-proximity, line numbers and path triage. Runs in plain Node, no install.
+79 assertions covering detection, rejection of noise, dedup caps, taint
+proximity, line numbers, path triage and — in `taint.test.js` — source→sink
+chains, function-parameter propagation, false-positive rejection and message
+listener validation. Runs in plain Node, no install.
 
 ## Files
 
@@ -96,11 +130,13 @@ proximity, line numbers and path triage. Runs in plain Node, no install.
 bug-bounty-hunter/
 ├── manifest.json      # MV3 manifest
 ├── scan-engine.js     # shared detection engine (pure, tested)
-├── content.js         # DOM/network plumbing, uses the engine
+├── taint-engine.js    # DOM XSS source→sink dataflow (pure, tested)
+├── content.js         # DOM/network plumbing, uses both engines
 ├── background.js      # service worker: aggregation + alarms cleanup
 ├── popup.html/js      # UI
 ├── styles.css
 ├── tests/engine.test.js
+├── tests/taint.test.js
 └── icons/
 ```
 

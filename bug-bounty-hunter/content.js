@@ -10,6 +10,8 @@
    ============================================================================= */
 
 const Engine = typeof ScanEngine !== 'undefined' ? ScanEngine : null;
+const Taint = typeof TaintEngine !== 'undefined' ? TaintEngine : null;
+const MAX_FLOWS = 40;
 
 const MAX_BODY = 1000000;      // scan at most 1MB of visible text
 const MAX_HTML = 2000000;      // and 2MB of markup
@@ -36,6 +38,8 @@ function emptyResults() {
     sinks: [],
     sensitivePaths: [],
     corsIssues: [],
+    domXssFlows: [],
+    xssWeaknesses: [],
     timestamp: null,
   };
 }
@@ -74,6 +78,26 @@ function mergeSinks(target, sinks, context) {
       continue;
     }
     capPush(target, s, Engine.MAX_SINKS);
+  }
+}
+
+function mergeTaint(results, analysis, origin) {
+  if (!Taint || !analysis) return;
+
+  for (const flow of analysis.flows || []) {
+    if (results.domXssFlows.length >= MAX_FLOWS) break;
+    flow.origin = origin;
+    const key = origin + '|' + flow.id;
+    if (results.domXssFlows.some(f => f.key === key)) continue;
+    flow.key = key;
+    results.domXssFlows.push(flow);
+  }
+
+  for (const w of analysis.weaknesses || []) {
+    if (results.xssWeaknesses.length >= 20) break;
+    if (results.xssWeaknesses.some(x => x.origin === origin && x.type === w.type)) continue;
+    w.origin = origin;
+    results.xssWeaknesses.push(w);
   }
 }
 
@@ -157,6 +181,22 @@ function extractFormEndpoints() {
   return forms;
 }
 
+// DOM-level XSS vectors that exist as markup rather than code.
+function scanDangerousDom(results) {
+  const add = (name, snippet) => {
+    mergeSinks(results.sinks, [{
+      type: 'Sink', name, severity: 'High', snippet: String(snippet).slice(0, 200),
+      context: 'DOM attribute', hasTaintFlow: true, potentialSources: ['markup attribute'],
+    }], 'DOM attribute');
+  };
+
+  document.querySelectorAll('[href^="javascript:" i], [src^="javascript:" i], [formaction^="javascript:" i]')
+    .forEach(el => add('javascript: URL', el.outerHTML));
+
+  document.querySelectorAll('[srcdoc]')
+    .forEach(el => add('iframe srcdoc', el.getAttribute('srcdoc')));
+}
+
 function scanInlineScripts(results, seen) {
   document.querySelectorAll('script:not([src])').forEach((script, i) => {
     const scriptId = `inline-script-${i}`;
@@ -169,6 +209,7 @@ function scanInlineScripts(results, seen) {
     mergeCredentials(results.leakedCredentials, Engine.scanCredentials(code, scriptId), seen);
     for (const v of Engine.scanHardcodedVars(code, scriptId)) capPush(results.jsVariables, v, Engine.MAX_FINDINGS);
     mergeSinks(results.sinks, Engine.scanSinks(code, scriptId), scriptId);
+    mergeTaint(results, Taint && Taint.analyze(code), scriptId);
 
     // //# sourceMappingURL= in an inline build points at downloadable sources
     const map = code.match(/\/\/#\s*sourceMappingURL=(\S+)/);
@@ -193,6 +234,7 @@ function scanInlineScripts(results, seen) {
       const id = `${el.tagName}-${attr.name}`;
       mergeCredentials(results.leakedCredentials, Engine.scanCredentials(attr.value, id), seen);
       mergeSinks(results.sinks, Engine.scanSinks(attr.value, id), id);
+      mergeTaint(results, Taint && Taint.analyze(attr.value), id);
     }
   });
 }
@@ -217,6 +259,8 @@ function performPageScan() {
   }
 
   scanInlineScripts(results, seen);
+
+  scanDangerousDom(results);
 
   results.urlPaths = Array.from(new Set(results.urlPaths.concat(extractURLPaths())));
   results.sensitivePaths = Engine.sensitivePaths(results.urlPaths);
@@ -397,6 +441,7 @@ function flushMutations() {
   pendingTexts = [];
   if (!chunk || chunk.length > MAX_HTML) return;
   recordNetworkFindings('Dynamic content', chunk);
+  mergeTaint(scanResults, Taint && Taint.analyze(chunk), 'Dynamic content');
 }
 
 // =============================================================================

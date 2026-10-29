@@ -288,6 +288,13 @@ const ScanEngine = (function () {
     { pattern: /chrome\.runtime\.sendMessage\s*\(/g, name: 'chrome.runtime.sendMessage', severity: 'Medium' },
     { pattern: /navigator\.sendBeacon\s*\(/g, name: 'sendBeacon', severity: 'Medium' },
     { pattern: /document\.createContextualFragment\s*\(/g, name: 'createContextualFragment', severity: 'Medium' },
+    { pattern: /postMessage\s*\([^)]*,\s*["'`]\*["'`]\s*\)/g, name: 'postMessage wildcard origin', severity: 'Medium' },
+    { pattern: /\.srcdoc\s*=/g, name: 'srcdoc assignment', severity: 'High' },
+    { pattern: /\bsetAttribute\s*\(\s*["'](?:on\w+|srcdoc)["']/g, name: 'setAttribute event/inline-HTML sink', severity: 'Medium' },
+    { pattern: /\bdocument\.domain\s*=/g, name: 'document.domain assignment', severity: 'Medium' },
+    { pattern: /\.globalEval\s*\(/g, name: 'jQuery globalEval', severity: 'High' },
+    { pattern: /\bcreateContextualFragment\s*\(/g, name: 'createContextualFragment', severity: 'Medium' },
+    { pattern: /\b(?:window|self|top|parent)\.(?:open|location)\s*\(/g, name: 'window.open/location()', severity: 'Low' },
   ];
 
   // Sources used for taint analysis. Positions are computed ONCE per text
@@ -303,6 +310,8 @@ const ScanEngine = (function () {
     { pattern: /URLSearchParams/g, name: 'URLSearchParams' },
     { pattern: /document\.cookie/g, name: 'document.cookie' },
     { pattern: /event\.data/g, name: 'message event.data' },
+    { pattern: /window\.name/g, name: 'window.name' },
+    { pattern: /history\.state/g, name: 'history.state' },
     { pattern: /\.value\b/g, name: 'input value' },
     { pattern: /\$\(.*\)\.val\s*\(\s*\)/g, name: 'jQuery .val()' },
     { pattern: /localStorage\.(getItem)?/g, name: 'localStorage' },

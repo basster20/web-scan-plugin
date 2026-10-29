@@ -4,7 +4,7 @@ Two independent tools that live in this repository:
 
 | Folder | What it is |
 | --- | --- |
-| [`bug-bounty-hunter/`](bug-bounty-hunter/) | Chrome/Edge (MV3) extension that scans the page you are on — and any `.js` file you point it at — for leaked secrets, dangerous sinks, CORS flaws and sensitive endpoints. Pure JavaScript, no build step, no dependencies. |
+| [`bug-bounty-hunter/`](bug-bounty-hunter/) | Chrome/Edge (MV3) extension that scans the page you are on — and any `.js` file you point it at — for leaked secrets, dangerous sinks, **DOM XSS source→sink flows**, CORS flaws and sensitive endpoints. Pure JavaScript, no build step, no dependencies. |
 | [`bible_dual_ndi/`](bible_dual_ndi/) | Python church-presentation tool: voice-driven Bible display with NDI output for OBS/vMix. |
 
 ## Quick start — the extension

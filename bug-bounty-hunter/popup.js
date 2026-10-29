@@ -14,6 +14,8 @@ const DEFAULT_KEYWORDS = [
 let currentResults = null;
 let currentSinks = [];
 let scannedTabUrl = null;
+let currentFlows = [];
+let currentWeaknesses = [];
 
 // =============================================================================
 // INITIALIZATION
@@ -97,6 +99,11 @@ function setupSinkFilters() {
       renderSinks(currentSinks);
     });
   });
+
+  ['filter-conf-high', 'filter-conf-medium', 'filter-conf-low'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => renderFlows(currentFlows, currentWeaknesses));
+  });
 }
 
 // =============================================================================
@@ -139,6 +146,8 @@ async function performPageScan() {
     if (response) {
       currentResults = response;
       currentSinks = response.sinks || [];
+      currentFlows = response.domXssFlows || [];
+      currentWeaknesses = response.xssWeaknesses || [];
       
       // Display results
       displayPageScanResults(response);
@@ -159,6 +168,7 @@ function displayPageScanResults(results) {
   document.getElementById('count-forms').textContent = results.formEndpoints?.length || 0;
   document.getElementById('count-js-secrets').textContent = results.jsVariables?.length || 0;
   document.getElementById('count-cors').textContent = results.corsIssues?.length || 0;
+  document.getElementById('count-flows').textContent = results.domXssFlows?.length || 0;
   
   // Render each section
   renderKeywords(results.sensitiveKeywords || []);
@@ -168,6 +178,7 @@ function displayPageScanResults(results) {
   renderForms(results.formEndpoints || []);
   renderJSSecrets(results.jsVariables || []);
   renderCors(results.corsIssues || []);
+  renderFlows(results.domXssFlows || [], results.xssWeaknesses || []);
 }
 
 // =============================================================================
@@ -354,6 +365,65 @@ function renderJSSecrets(secrets) {
   attachCopyButtons(container);
 }
 
+function renderFlows(flows, weaknesses) {
+  const container = document.getElementById('flows-results');
+  const weakBox = document.getElementById('weaknesses-results');
+  if (!container) return;
+
+  currentFlows = flows || [];
+  currentWeaknesses = weaknesses || [];
+
+  const show = {
+    high: document.getElementById('filter-conf-high').checked,
+    medium: document.getElementById('filter-conf-medium').checked,
+    low: document.getElementById('filter-conf-low').checked,
+  };
+  const visible = currentFlows.filter(f => show[f.confidence]);
+
+  document.getElementById('flow-total-count').textContent = `${visible.length} flows`;
+  document.getElementById('count-flows').textContent = currentFlows.length;
+
+  container.innerHTML = visible.length
+    ? visible.map(flow => `
+      <div class="result-item sink-item sink-${flow.confidence === 'low' ? 'medium' : 'high'}">
+        <div class="result-header">
+          <span class="result-type badge badge-danger">${escapeHtml(flow.sink.name)}</span>
+          <span class="severity-badge ${flow.confidence === 'high' ? 'high' : 'medium'}">${escapeHtml(flow.confidence)} ${Math.round(flow.score * 100)}%</span>
+          <span class="context">from ${escapeHtml(flow.source.name)}</span>
+        </div>
+        <div class="result-details">
+          <pre class="sink-snippet"><code>${escapeHtml(flow.sink.snippet)}</code></pre>
+          <ol class="flow-chain">
+            ${flow.steps.map(step => `
+              <li class="flow-step flow-${escapeHtml(step.kind)}">
+                <span class="line-no">L${step.line + 1}</span>
+                <span class="flow-kind">${escapeHtml(step.kind)}</span>
+                <code>${escapeHtml(step.text)}</code>
+              </li>`).join('')}
+          </ol>
+          <div class="sink-meta">
+            <span class="context">${escapeHtml(flow.origin || 'inline script')} · ${flow.hops} hop${flow.hops === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+      </div>`).join('')
+    : '<p class="no-results">No source → sink flows detected in page scripts</p>';
+
+  if (!weakBox) return;
+  weakBox.innerHTML = currentWeaknesses.length
+    ? currentWeaknesses.map(w => `
+      <div class="result-item">
+        <div class="result-header">
+          <span class="result-type badge badge-warning">${escapeHtml(w.type)}</span>
+          <span class="line-no">L${w.line}</span>
+        </div>
+        <div class="result-details">
+          <pre class="sink-snippet"><code>${escapeHtml(w.snippet)}</code></pre>
+          <div class="sink-meta"><span class="context">${escapeHtml(w.note || '')}</span></div>
+        </div>
+      </div>`).join('')
+    : '';
+}
+
 function renderCors(issues) {
   const container = document.getElementById('cors-results');
   if (!container) return;
@@ -484,6 +554,7 @@ async function scanJavaScript() {
       })),
       credentialMatches: ScanEngine.scanCredentials(code, 'JS Scanner'),
       sinkMatches: ScanEngine.scanSinks(code, 'JS Scanner'),
+      flows: TaintEngine.analyze(code).flows,
     };
 
     // Display results
@@ -546,6 +617,22 @@ function displayJSScanResults(results) {
     `).join('');
   } else {
     sinkContainer.innerHTML = '<p class="no-results">No sinks detected</p>';
+  }
+
+  // DOM XSS flows through the shared taint engine
+  const flowContainer = document.getElementById('js-flow-results');
+  const flowCount = document.getElementById('js-flow-count');
+  if (flowCount) flowCount.textContent = (results.flows || []).length;
+  if (flowContainer) {
+    flowContainer.innerHTML = (results.flows && results.flows.length)
+      ? results.flows.map(flow => `
+        <div class="js-result-line">
+          <span class="result-type badge badge-danger">${escapeHtml(flow.sink.name)}</span>
+          <span class="line-no">L${flow.sink.line}</span>
+          <code>${escapeHtml(flow.steps.map(s => s.text).join(' → '))}</code>
+          <span class="badge ${badgeClass(flow.confidence)}">${escapeHtml(flow.confidence)}</span>
+        </div>`).join('')
+      : '<p class="no-results">No source → sink flows</p>';
   }
   
   attachCopyButtons(container);
@@ -631,7 +718,7 @@ function downloadReport() {
   
   const report = {
     extension: 'Bug Bounty Hunter',
-    version: '1.1.0',
+    version: '1.2.0',
     scannedUrl: scannedTabUrl || 'unknown',
     scanTime: currentResults.timestamp,
     summary: {
@@ -650,7 +737,9 @@ function downloadReport() {
       sensitiveCookies: currentResults.sensitiveCookies || [],
       formEndpoints: currentResults.formEndpoints || [],
       jsVariables: currentResults.jsVariables || [],
-      sinks: currentResults.sinks || []
+      sinks: currentResults.sinks || [],
+      domXssFlows: currentResults.domXssFlows || [],
+      xssWeaknesses: currentResults.xssWeaknesses || []
     }
   };
   

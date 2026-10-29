@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Bug Bounty Hunter",
-  "version": "1.1.0",
-  "description": "Security scanning extension for bug bounty hunters - detects leaked secrets, dangerous sinks, CORS flaws and sensitive endpoints",
+  "version": "1.2.0",
+  "description": "Security scanning extension for bug bounty hunters - leaked secrets, DOM XSS source-to-sink flows, CORS flaws and sensitive endpoints",
   "permissions": [
     "activeTab",
     "storage",
@@ -27,7 +27,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["scan-engine.js", "content.js"],
+      "js": ["scan-engine.js", "taint-engine.js", "content.js"],
       "run_at": "document_start",
       "all_frames": true
   }

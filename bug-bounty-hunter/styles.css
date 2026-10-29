@@ -795,3 +795,40 @@ footer p {
 .path-item.path-sensitive .badge {
   margin-left: 6px;
 }
+
+/* DOM XSS source → sink chains */
+.flow-chain {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 0 0 10px;
+  border-left: 2px solid rgba(148, 163, 184, .35);
+}
+.flow-chain .flow-step {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 11px;
+}
+.flow-chain .flow-step code {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.flow-kind {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex: 0 0 auto;
+}
+.flow-source .flow-kind { color: #16a34a; background: rgba(22, 163, 74, .14); }
+.flow-assign .flow-kind { color: #2563eb; background: rgba(37, 99, 235, .14); }
+.flow-call .flow-kind { color: #7c3aed; background: rgba(124, 58, 237, .14); }
+.flow-param .flow-kind { color: #d97706; background: rgba(217, 119, 6, .14); }
+.flow-sink .flow-kind { color: #dc2626; background: rgba(220, 38, 38, .14); }
+.flow-sink code { font-weight: 600; }
